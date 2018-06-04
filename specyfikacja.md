@@ -19,4 +19,4 @@ certyfikowany do napięcia `4000V` (ponad 300-krotnie przewyższającego napięc
 - moduł oparty o standardowy kontroler `PN532`
 - komunikacja z komputerem przez `UART/Serial`
 - współpracuje z kartami w standardzie `MiFare` (w tym Elektroniczną Legitymacją Studencką)
-- częstotliwość `13.56 MHz` (daleko poza zakresem pracy zamka wydziałowego
+- częstotliwość `13.56 MHz` (daleko poza zakresem pracy zamka wydziałowego)
