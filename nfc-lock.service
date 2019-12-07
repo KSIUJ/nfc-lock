@@ -1,0 +1,12 @@
+[Unit]
+Description=Lock
+After=multi-user.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/nfc-lock
+ExecStart=/opt/nfc-lock/venv/bin/python3 /opt/nfc-lock/app.py
+
+[Install]
+WantedBy=multi-user.target
+

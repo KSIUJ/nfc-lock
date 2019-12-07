@@ -1,44 +1,52 @@
-from auth import authenticate
+from auth import authenticate, AuthResult
 from reader import NFCReader
-from lock import DoorLock
-from display import lcd
+from gpio import Outputs, LEDs
 from time import sleep
+from server import Server
+from logger import Logger
 
-screen = lcd()
-error_count = 0
+import config.main as config
+import config.server_secret as server_secret
 
-with DoorLock() as lock, NFCReader() as reader:
+import struct
+
+server = Server()
+
+log = Logger().getLog()
+
+with Outputs() as out:
+    server.start(password=server_secret.password, openingLock=out.open_door, port=8000)
+    log.info('Starting main loop')
+    out.control_led(LEDs.RED_GREEN_DIMM_IN_OUT_TOGETHER, frequency=0.2, number_of_blinks=20)
     while True:
         try:
-            screen.lcd_clear()
-            screen.lcd_display_string(" Kolo Studentow", 1)
-            screen.lcd_display_string("  Informatyki", 2)
-
-            uid = reader.get_card_uid()
-            if authenticate(uid):
-                print("Access granted: " + uid)
-                lock.open_door()
-                screen.lcd_clear()
-                screen.lcd_display_string("   Door open", 1)
-                screen.lcd_display_string("Welcome to KSI!", 2)
-            else:
-                print("Access denied: " + uid)
-                screen.lcd_clear()
-                screen.lcd_display_string("  Unauthorized ", 1)
-                screen.lcd_display_string(" Access denied!", 2)
-            sleep(5)
-            error_count = 0
+            with NFCReader(config.nfc_reader['input_device']) as card_reader:
+                for uid_dec in card_reader.get_card_uid():
+                    uid_endian = int(uid_dec)
+                    uid_fixed = struct.unpack("<I", struct.pack(">I", uid_endian))[0]
+                    uid = format(uid_fixed, "08x")
+                    out.control_led(LEDs.RED_GREEN_BLINKING_ALTERNATELY)
+                    auth_result = authenticate(uid)
+                    if auth_result.isGranted:
+                        if auth_result.type == AuthResult.TYPE_NORMAL:
+                            log.info("Access granted by ERC: " + uid)
+                            out.control_led(LEDs.GREEN_STATIC, duration=5)
+                        elif auth_result.type == AuthResult.TYPE_HARDCODED:
+                            log.info("Access granted by hardcoded IDs: " + uid)
+                            out.control_led(LEDs.GREEN_BLINKING, frequency=0.3, number_of_blinks=17)
+                        out.open_door()
+                        sleep(1)
+                    else:
+                        if auth_result.type == AuthResult.TYPE_NORMAL:
+                            log.info("Access denied by ERC: " + uid)
+                            out.control_led(LEDs.RED_STATIC, duration=5)
+                        elif auth_result.type == AuthResult.TYPE_HARDCODED:
+                            log.info("Access denied by hardcoded IDs: " + uid)
+                            out.control_led(LEDs.RED_BLINKING, frequency=0.3, number_of_blinks=17)
         except Exception as ex:
-            if error_count < 10:
-                backoff = 2 ** error_count
-                print(ex)
-                print("Error, restarting in " + str(backoff))
-                screen.lcd_clear()
-                screen.lcd_display_string("     ERROR", 1)
-                screen.lcd_display_string("Reset in " + str(backoff) + "s", 2)
-                sleep(backoff)
-                error_count += 1
-            else:
-                screen.lcd_clear()
-                screen.lcd_display_string("  System error", 1)
-                raise
+            log.error("MAIN LOOP EXCEPTION: " + str(ex))
+            out.control_led(LEDs.RED_GREEN_BLINKING_TOGETHER, frequency=0.2, number_of_blinks=20)
+
+        log.error("Restart main loop")
+
+
