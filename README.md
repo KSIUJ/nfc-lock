@@ -11,7 +11,7 @@ NFC door lock
 7. `openssl req -x509 -newkey rsa:4096 -keyout cert/$(hostname).key -out cert/$(hostname).crt -nodes -days 365` 
 5. `cp -r config-example/ config`, change relevant values in `config`
 6. Create `/etc/systemd/system/nfc-lock.service`, contents below
-7. `systemctl daemon-reload; systemctl restart nfc-lock`
+7. `systemctl daemon-reload; systemctl enable nfc-lock; systemctl restart nfc-lock`
 
 `/etc/systemd/system/nfc-lock.service`:
 ```
