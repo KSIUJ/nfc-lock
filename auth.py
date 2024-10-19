@@ -1,13 +1,20 @@
 import requests
 from time import time
 from logger import Logger
+import json
 
 import config.main as config
 import config.erc_secret as erc_secret
 
 log = Logger().getLog()
-cache : dict[str, float] = {}
-CACHE_EXPIRE_TIME_SECONDS = 60 * 60 * 24 * 7 * 2
+cache: set[str] = set()
+
+last_cache_hit = 0
+last_cache_try = 0
+
+CACHE_REFRESH_WINDOW_SECONDS = config.cache["refresh"] or 60 * 60
+CACHE_RETRY_WINDOW_SECONDS = config.cache["refresh"] or 60 * 5
+CACHE_IS_LAZY = config.cache["lazy"] or False
 
 
 class AuthResult:
@@ -19,14 +26,46 @@ class AuthResult:
         self.type = type
 
 
-def authenticate(uid: str):
-    if uid in cache:
-        if time() - cache[uid] < CACHE_EXPIRE_TIME_SECONDS:
-            log.debug("ID in cache")
-            return AuthResult(True, AuthResult.TYPE_NORMAL)
-        else:
-            cache.pop(uid)
+def refresh_cache():
+    global cache
+    log.debug("Making bulk request to auth server")
+    x = requests.post(
+        config.erc["bulk-endpoint"],
+        json={
+            "client_id": erc_secret.client_id,
+            "client_secret": erc_secret.client_secret,
+        },
+        timeout=2,
+    )
+    log.debug(f"Returned status code: {x.status_code}")
+    cache = set(json.dumps(x))
 
+
+def authenticate(uid: str):
+    global last_cache_hit, last_cache_try
+    now = time()
+    if now - last_cache_hit > CACHE_REFRESH_WINDOW_SECONDS:
+        if now - last_cache_try > CACHE_RETRY_WINDOW_SECONDS:
+            try:
+                refresh_cache()
+                last_cache_hit = now
+            except Exception as e:
+                log.error(str(e))
+            finally:
+                last_cache_try = now
+
+    if uid in config.hardcoded_uid:
+        return AuthResult(True, AuthResult.TYPE_HARDCODED)
+    elif uid in cache:
+        log.debug("ID in cache")
+        return AuthResult(True, AuthResult.TYPE_NORMAL)
+    elif not CACHE_IS_LAZY:
+        return authenticate_single(uid)
+    else:
+        return AuthResult(False, AuthResult.TYPE_NORMAL)
+
+
+def authenticate_single(uid: str):
     try:
         log.debug("Making request to auth server")
         x = requests.post(
@@ -39,9 +78,7 @@ def authenticate(uid: str):
             timeout=2,
         )
         log.debug(f"Returned status code: {x.status_code}")
-        if x.status_code == 200:
-            cache[uid] = time()
         return AuthResult(x.status_code == 200, AuthResult.TYPE_NORMAL)
     except Exception as e:
         log.error(str(e))
-        return AuthResult(uid in config.hardcoded_uid, AuthResult.TYPE_HARDCODED)
+        return AuthResult(False, AuthResult.TYPE_NORMAL)
