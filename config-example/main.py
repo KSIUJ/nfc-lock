@@ -20,7 +20,7 @@ lock = {
 
 # Configuration for a server that allows to remotely open the door
 server = {
-    'port': 1234,
+    'port': 443,
     'cert_file': '/opt/nfc-lock/cert/lock.crt',
     'key_file': '/opt/nfc-lock/cert/lock.key'
 }

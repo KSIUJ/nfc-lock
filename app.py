@@ -15,7 +15,7 @@ server = Server()
 log = Logger().getLog()
 
 with Outputs() as out:
-    server.start(password=server_secret.password, openingLock=out.open_door, port=8000)
+    server.start(password=server_secret.password, openingLock=out.open_door, api_token=server_secret.api_token, port=config.server['port'])
     log.info('Starting main loop')
     out.control_led(LEDs.RED_GREEN_DIMM_IN_OUT_TOGETHER, frequency=0.2, number_of_blinks=20)
     while True:
@@ -26,6 +26,7 @@ with Outputs() as out:
                     uid_fixed = struct.unpack("<I", struct.pack(">I", uid_endian))[0]
                     uid = format(uid_fixed, "08x")
                     out.control_led(LEDs.RED_GREEN_BLINKING_ALTERNATELY)
+                    server.set_last_uid(uid)
                     auth_result = authenticate(uid)
                     if auth_result.isGranted:
                         if auth_result.type == AuthResult.TYPE_NORMAL:
