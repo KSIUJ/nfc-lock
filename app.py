@@ -29,19 +29,19 @@ with Outputs() as out:
                     auth_result = authenticate(uid)
                     if auth_result.isGranted:
                         if auth_result.type == AuthResult.TYPE_NORMAL:
-                            log.info("Access granted by ERC: " + uid)
+                            log.info(f"Access granted by Keycloak: {uid} ({auth_result.reason})")
                             out.control_led(LEDs.GREEN_STATIC, duration=5)
                         elif auth_result.type == AuthResult.TYPE_HARDCODED:
-                            log.info("Access granted by hardcoded IDs: " + uid)
+                            log.info(f"Access granted by hardcoded IDs: {uid} ({auth_result.reason})")
                             out.control_led(LEDs.GREEN_BLINKING, frequency=0.3, number_of_blinks=17)
                         out.open_door()
                         sleep(1)
                     else:
                         if auth_result.type == AuthResult.TYPE_NORMAL:
-                            log.info("Access denied by ERC: " + uid)
+                            log.info(f"Access denied by Keycloak: {uid} ({auth_result.reason})")
                             out.control_led(LEDs.RED_STATIC, duration=5)
                         elif auth_result.type == AuthResult.TYPE_HARDCODED:
-                            log.info("Access denied by hardcoded IDs: " + uid)
+                            log.info(f"Access denied by hardcoded IDs: {uid} ({auth_result.reason})")
                             out.control_led(LEDs.RED_BLINKING, frequency=0.3, number_of_blinks=17)
         except Exception as ex:
             log.error("MAIN LOOP EXCEPTION: " + str(ex))

@@ -25,12 +25,20 @@ server = {
     'key_file': '/opt/nfc-lock/cert/lock.key'
 }
 
-# ERC server endpoint
-erc = {
-    'endpoint': 'https://ercendpoint.com'
+# If True, every card is accepted without checking Keycloak or hardcoded_uid.
+# Dangerous - only for testing/maintenance, never leave enabled in production.
+bypass = False
+
+# Keycloak connection settings (non-secret). Client id/secret live in
+# keycloak_secret.py since config-example/ is committed to git.
+keycloak = {
+    'server_url': 'https://auth.internal.ksi.sh',
+    'realm': 'ksi',
+    'nfc_attribute': 'nfc_uid',
+    'required_group': 'door-access'
 }
 
-# IDs of cards that can open the door when ERC is not available
+# IDs of cards that can open the door when Keycloak is not available
 hardcoded_uid = [
     "12345678",
     "90abcdef"

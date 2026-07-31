@@ -43,5 +43,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 class Server:
     def start(self, password, openingLock, addr = '', port = 8000):
         httpd = HTTPServer((addr, port), partial(RequestHandler, password, openingLock))
-        httpd.socket = ssl.wrap_socket (httpd.socket, keyfile=config.server['key_file'], certfile=config.server['cert_file'], server_side=True)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=config.server['cert_file'], keyfile=config.server['key_file'])
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
         Thread(target=httpd.serve_forever).start()

@@ -21,6 +21,7 @@ After=multi-user.target
 
 [Service]
 Type=simple
+Environment=REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 WorkingDirectory=/opt/nfc-lock
 ExecStart=/usr/bin/python3 -u /opt/nfc-lock/app.py
 Restart=always
