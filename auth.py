@@ -8,7 +8,7 @@ import config.keycloak_secret as keycloak_secret
 log = Logger().getLog()
 cache : dict[str, float] = {}
 CACHE_EXPIRE_TIME_SECONDS = 60 * 60 * 24 * 7 * 2
-REQUEST_TIMEOUT_SECONDS = 3
+REQUEST_TIMEOUT_SECONDS = 10
 
 _token = None
 _token_expiry = 0.0
@@ -29,6 +29,10 @@ def _realm_url(path: str) -> str:
     return f"{config.keycloak['server_url']}/admin/realms/{config.keycloak['realm']}{path}"
 
 
+def _client_cert() -> tuple[str, str]:
+    return (config.keycloak['client_cert_file'], config.keycloak['client_key_file'])
+
+
 def _get_token() -> str:
     global _token, _token_expiry
     if _token is not None and time() < _token_expiry:
@@ -41,6 +45,7 @@ def _get_token() -> str:
             "client_id": keycloak_secret.client_id,
             "client_secret": keycloak_secret.client_secret,
         },
+        cert=_client_cert(),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
@@ -59,6 +64,7 @@ def _get_group_id(token: str) -> str:
         _realm_url("/groups"),
         headers={"Authorization": f"Bearer {token}"},
         params={"search": config.keycloak["required_group"], "exact": "true"},
+        cert=_client_cert(),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()
@@ -77,6 +83,7 @@ def _user_has_access(uid: str) -> tuple[bool, str]:
         _realm_url(f"/groups/{group_id}/members"),
         headers={"Authorization": f"Bearer {token}"},
         params={"briefRepresentation": "false"},
+        cert=_client_cert(),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     resp.raise_for_status()

@@ -18,11 +18,11 @@ lock = {
     'lock_reversed': True
 }
 
-# Configuration for a server that allows to remotely open the door
+# Configuration for a server that allows to remotely open the door.
+# Plain HTTP on localhost only - an nginx reverse proxy in front of this
+# host handles TLS termination for external clients.
 server = {
-    'port': 443,
-    'cert_file': '/opt/nfc-lock/cert/lock.crt',
-    'key_file': '/opt/nfc-lock/cert/lock.key'
+    'port': 8000
 }
 
 # If True, every card is accepted without checking Keycloak or hardcoded_uid.
@@ -31,11 +31,15 @@ bypass = False
 
 # Keycloak connection settings (non-secret). Client id/secret live in
 # keycloak_secret.py since config-example/ is committed to git.
+# Keycloak's origin only accepts this client over mTLS, so requests
+# present the client cert/key pair below during the TLS handshake.
 keycloak = {
     'server_url': 'https://auth.internal.ksi.sh',
     'realm': 'ksi',
     'nfc_attribute': 'nfc_uid',
-    'required_group': 'door-access'
+    'required_group': 'door-access',
+    'client_cert_file': '/opt/nfc-lock/cert/keycloak-client.crt',
+    'client_key_file': '/opt/nfc-lock/cert/keycloak-client.key'
 }
 
 # IDs of cards that can open the door when Keycloak is not available

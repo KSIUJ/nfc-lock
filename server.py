@@ -2,11 +2,8 @@ from functools import partial
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import hmac
 import json
-import ssl
 from urllib.parse import urlparse,parse_qs
 from threading import Thread
-
-import config.main as config
 
 class RequestHandler(BaseHTTPRequestHandler):
     openingLock = None
@@ -70,9 +67,8 @@ class Server:
     def set_last_uid(self, uid):
         self.last_scan['uid'] = uid
 
-    def start(self, password, openingLock, api_token, addr = '', port = 8000):
+    def start(self, password, openingLock, api_token, addr = '127.0.0.1', port = 8000):
+        # Plain HTTP: TLS termination is handled by an nginx reverse proxy in
+        # front of this server, so it only needs to listen on localhost.
         httpd = HTTPServer((addr, port), partial(RequestHandler, password, openingLock, api_token, self.last_scan))
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        context.load_cert_chain(certfile=config.server['cert_file'], keyfile=config.server['key_file'])
-        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
         Thread(target=httpd.serve_forever).start()
