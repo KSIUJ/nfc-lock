@@ -21,7 +21,8 @@ class NFCReader:
                     if k.keystate == evdev.events.KeyEvent.key_down:
                         key = self.process_key(k.keycode)
                         if key == 'E':
-                            yield buf
+                            if buf:
+                                yield buf
                             buf = ''
                         else:
                             buf += key
