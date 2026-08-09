@@ -1,4 +1,4 @@
-from auth import authenticate, AuthResult
+from auth import authenticate, clear_cache, AuthResult
 from reader import NFCReader
 from gpio import Outputs, LEDs
 from time import sleep
@@ -15,7 +15,7 @@ server = Server()
 log = Logger().getLog()
 
 with Outputs() as out:
-    server.start(password=server_secret.password, openingLock=out.open_door, api_token=server_secret.api_token, port=config.server['port'])
+    server.start(password=server_secret.password, openingLock=out.open_door, api_token=server_secret.api_token, clearCache=clear_cache, port=config.server['port'])
     log.info('Starting main loop')
     out.control_led(LEDs.RED_GREEN_DIMM_IN_OUT_TOGETHER, frequency=0.2, number_of_blinks=20)
     while True:

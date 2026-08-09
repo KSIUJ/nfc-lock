@@ -37,6 +37,7 @@ keycloak = {
     'server_url': 'https://auth.internal.ksi.sh',
     'realm': 'ksi',
     'nfc_attribute': 'nfc_uid',
+    # Full group path, e.g. 'Locks/HQ' for a nested group (leading slash optional).
     'required_group': 'door-access',
     'client_cert_file': '/opt/nfc-lock/cert/keycloak-client.crt',
     'client_key_file': '/opt/nfc-lock/cert/keycloak-client.key'

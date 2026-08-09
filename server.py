@@ -10,12 +10,14 @@ class RequestHandler(BaseHTTPRequestHandler):
     password = None
     api_token = None
     last_scan = None
+    clearCache = None
 
-    def __init__(self, password, openingLock, api_token, last_scan, *args, **kwargs):
+    def __init__(self, password, openingLock, api_token, last_scan, clearCache, *args, **kwargs):
         self.openingLock = openingLock
         self.password = password
         self.api_token = api_token
         self.last_scan = last_scan
+        self.clearCache = clearCache
         super().__init__(*args, **kwargs)
 
 
@@ -60,6 +62,22 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.sendResponse(code=403)
 
 
+    def do_POST(self):
+        urlParsed = urlparse(self.path)
+        paramParsed = parse_qs(urlParsed.query)
+
+        if urlParsed.path == '/clear-cache':
+            token = paramParsed.get('token', [''])[0]
+            if hmac.compare_digest(token, self.api_token):
+                self.clearCache()
+                self.sendResponse(code=200, message=b"OK! Cache cleared.")
+            else:
+                self.sendResponse(code=403)
+            return
+
+        self.sendResponse(code=404)
+
+
 class Server:
     def __init__(self):
         self.last_scan = {'uid': None}
@@ -67,8 +85,8 @@ class Server:
     def set_last_uid(self, uid):
         self.last_scan['uid'] = uid
 
-    def start(self, password, openingLock, api_token, addr = '127.0.0.1', port = 8000):
+    def start(self, password, openingLock, api_token, clearCache, addr = '127.0.0.1', port = 8000):
         # Plain HTTP: TLS termination is handled by an nginx reverse proxy in
         # front of this server, so it only needs to listen on localhost.
-        httpd = HTTPServer((addr, port), partial(RequestHandler, password, openingLock, api_token, self.last_scan))
+        httpd = HTTPServer((addr, port), partial(RequestHandler, password, openingLock, api_token, self.last_scan, clearCache))
         Thread(target=httpd.serve_forever).start()

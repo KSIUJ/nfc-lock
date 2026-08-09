@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFC Lock — Reader Link</title>
+<style>
+  :root{
+    --bg-0: #0a0e14;
+    --bg-1: #10151f;
+    --panel: #131a26;
+    --panel-border: #212b3b;
+    --text: #e8edf5;
+    --text-dim: #7c8aa0;
+    --accent: #4ee1a0;
+    --accent-dim: #2a6b52;
+    --danger: #ff5d6c;
+    --danger-dim: #6b2a30;
+    --shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    height: 100%;
+  }
+
+  body{
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(78,225,160,0.08), transparent 40%),
+      radial-gradient(circle at 80% 85%, rgba(78,140,225,0.06), transparent 45%),
+      var(--bg-0);
+    color: var(--text);
+  }
+
+  .panel{
+    width: 100%;
+    max-width: 380px;
+    background: linear-gradient(180deg, var(--panel), var(--bg-1));
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 28px 24px 22px;
+    box-shadow: var(--shadow);
+  }
+
+  .eyebrow{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 22px;
+  }
+
+  .eyebrow span:first-child{
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dot{
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--danger);
+    box-shadow: 0 0 0 0 rgba(255,93,108,0.5);
+    transition: background 0.3s ease;
+  }
+
+  .dot.live{
+    background: var(--accent);
+    animation: dotpulse 2s infinite;
+  }
+
+  @keyframes dotpulse{
+    0%   { box-shadow: 0 0 0 0 rgba(78,225,160,0.45); }
+    70%  { box-shadow: 0 0 0 7px rgba(78,225,160,0); }
+    100% { box-shadow: 0 0 0 0 rgba(78,225,160,0); }
+  }
+
+  #clock{
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+  }
+
+  .scanner{
+    position: relative;
+    width: 128px;
+    height: 128px;
+    margin: 0 auto 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ring{
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--accent-dim);
+    transition: border-color 0.3s ease;
+  }
+
+  .ring.pulse{
+    animation: ringpulse 2.4s ease-out infinite;
+  }
+
+  @keyframes ringpulse{
+    0%   { transform: scale(0.82); opacity: 0.9; }
+    80%  { transform: scale(1.18); opacity: 0; }
+    100% { transform: scale(1.18); opacity: 0; }
+  }
+
+  .scanner.scanned .ring{
+    border-color: var(--accent);
+  }
+
+  .keyhole{
+    width: 44px;
+    height: 44px;
+    fill: var(--text-dim);
+    position: relative;
+    z-index: 1;
+    transition: fill 0.3s ease, transform 0.3s ease;
+  }
+
+  .scanner.scanned .keyhole{
+    fill: var(--accent);
+    transform: scale(1.08);
+  }
+
+  .status{
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 20px;
+    min-height: 16px;
+  }
+
+  .uid-card{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 14px 14px 14px 18px;
+    margin-bottom: 12px;
+  }
+
+  .uid-value{
+    flex: 1;
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  .uid-value.empty{
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: normal;
+  }
+
+  button{
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    outline: none;
+  }
+
+  .copy-btn{
+    flex-shrink: 0;
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 9px;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  }
+
+  .copy-btn:hover:not(:disabled){
+    background: var(--accent);
+    color: #06231a;
+  }
+
+  .copy-btn:active:not(:disabled){
+    transform: scale(0.96);
+  }
+
+  .copy-btn:disabled{
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .copy-btn.copied{
+    background: var(--accent);
+    color: #06231a;
+  }
+
+  .clear-btn{
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--danger-dim);
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 11px;
+    border-radius: 12px;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+    margin-bottom: 16px;
+  }
+
+  .clear-btn:hover:not(:disabled){
+    background: rgba(255,93,108,0.1);
+    border-color: var(--danger);
+  }
+
+  .clear-btn:active:not(:disabled){
+    transform: scale(0.98);
+  }
+
+  .clear-btn:disabled{
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .clear-btn.done{
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(78,225,160,0.08);
+  }
+
+  .footline{
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-dim);
+    opacity: 0.7;
+  }
+</style>
+</head>
+<body>
+
+  <div class="panel">
+    <div class="eyebrow">
+      <span><span class="dot" id="liveDot"></span>Reader link</span>
+      <span id="clock">--:--:--</span>
+    </div>
+
+    <div class="scanner" id="scanner">
+      <div class="ring pulse" id="ring"></div>
+      <svg class="keyhole" viewBox="0 0 24 24" id="keyholeIcon">
+        <path d="M12 2a4 4 0 0 0-2.2 7.34L8 15.5A1 1 0 0 0 9 17h6a1 1 0 0 0 1-1.5l-1.8-6.16A4 4 0 0 0 12 2Zm0 2a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm-.9 5.86a4 4 0 0 0 1.8 0l1.32 4.14H9.78Z"/>
+      </svg>
+    </div>
+
+    <div class="status" id="statusText">Connecting…</div>
+
+    <div class="uid-card">
+      <div class="uid-value empty" id="uidValue">No tag scanned</div>
+      <button class="copy-btn" id="copyBtn" disabled>Copy</button>
+    </div>
+
+    <button class="clear-btn" id="clearBtn">Clear cache</button>
+
+    <div class="footline">Polls the lock every 1.5s over the local proxy</div>
+  </div>
+
+<script>
+  const POLL_MS = 1500;
+  const scanner   = document.getElementById('scanner');
+  const ring      = document.getElementById('ring');
+  const statusEl  = document.getElementById('statusText');
+  const uidEl     = document.getElementById('uidValue');
+  const copyBtn   = document.getElementById('copyBtn');
+  const clearBtn  = document.getElementById('clearBtn');
+  const liveDot   = document.getElementById('liveDot');
+  const clockEl   = document.getElementById('clock');
+
+  let currentUid = null;
+
+  function tickClock(){
+    clockEl.textContent = new Date().toLocaleTimeString([], {hour12:false});
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  function renderScanned(uid){
+    scanner.classList.add('scanned');
+    ring.classList.remove('pulse');
+    uidEl.textContent = uid;
+    uidEl.classList.remove('empty');
+    statusEl.textContent = 'Tag detected';
+    copyBtn.disabled = false;
+  }
+
+  function renderEmpty(){
+    scanner.classList.remove('scanned');
+    ring.classList.add('pulse');
+    uidEl.textContent = 'No tag scanned';
+    uidEl.classList.add('empty');
+    statusEl.textContent = 'Waiting for a tag…';
+    copyBtn.disabled = true;
+  }
+
+  function renderError(){
+    liveDot.classList.remove('live');
+    statusEl.textContent = 'Reader unreachable — retrying…';
+  }
+
+  async function poll(){
+    try{
+      const res = await fetch('/api/last-uid', { cache: 'no-store' });
+      if(!res.ok) throw new Error('bad status ' + res.status);
+      const data = await res.json();
+      liveDot.classList.add('live');
+
+      if(data && data.uid){
+        currentUid = data.uid;
+        renderScanned(data.uid);
+      } else {
+        currentUid = null;
+        renderEmpty();
+      }
+    } catch(err){
+      renderError();
+    }
+  }
+
+  async function copyUid(){
+    if(!currentUid) return;
+    try{
+      await navigator.clipboard.writeText(currentUid);
+    } catch(e){
+      // Fallback for non-secure contexts / older browsers
+      const ta = document.createElement('textarea');
+      ta.value = currentUid;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    copyBtn.textContent = 'Copied';
+    copyBtn.classList.add('copied');
+    setTimeout(() => {
+      copyBtn.textContent = 'Copy';
+      copyBtn.classList.remove('copied');
+    }, 1200);
+  }
+
+  async function clearCache(){
+    clearBtn.disabled = true;
+    const original = clearBtn.textContent;
+    clearBtn.textContent = 'Clearing…';
+    try{
+      const res = await fetch('/api/clear-cache', { method: 'POST', cache: 'no-store' });
+      if(!res.ok) throw new Error('bad status ' + res.status);
+      clearBtn.textContent = 'Cache cleared';
+      clearBtn.classList.add('done');
+    } catch(err){
+      clearBtn.textContent = 'Failed — retry';
+    }
+    setTimeout(() => {
+      clearBtn.textContent = original;
+      clearBtn.classList.remove('done');
+      clearBtn.disabled = false;
+    }, 1500);
+  }
+
+  copyBtn.addEventListener('click', copyUid);
+  clearBtn.addEventListener('click', clearCache);
+
+  poll();
+  setInterval(poll, POLL_MS);
+</script>
+
+</body>
+</html>

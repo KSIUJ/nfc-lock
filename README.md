@@ -36,6 +36,37 @@ server {
 
 Adjust `server_name`/cert paths to your setup (self-signed certs work too, just swap `ssl_certificate*` for your own files).
 
+### Reader-link web page
+
+`web/index.html` is a static page (see it for source) that shows the last-scanned UID live and lets you copy it or clear the auth cache, without ever exposing `server_secret.api_token` to the browser — nginx injects the token server-side when proxying `/api/*` to the app:
+
+```
+server {
+    listen 443 ssl;
+    server_name lock.internal.ksi.sh;
+
+    ssl_certificate     /etc/letsencrypt/live/lock.internal.ksi.sh/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/lock.internal.ksi.sh/privkey.pem;
+
+    root /opt/nfc-lock/web;
+    index index.html;
+
+    location /api/last-uid {
+        proxy_pass http://127.0.0.1:8000/last-uid?token=REPLACE_WITH_API_TOKEN;
+    }
+
+    location /api/clear-cache {
+        proxy_pass http://127.0.0.1:8000/clear-cache?token=REPLACE_WITH_API_TOKEN;
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+```
+
+`REPLACE_WITH_API_TOKEN` must match `server_secret.api_token`. This can share the same `server{}` block as the reverse proxy above, or run on its own `server_name`/port if you'd rather keep the page and the raw unlock API separate.
+
 `/etc/systemd/system/nfc-lock.service`:
 ```
 [Unit]

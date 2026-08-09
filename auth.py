@@ -60,18 +60,19 @@ def _get_group_id(token: str) -> str:
     if _group_id is not None:
         return _group_id
 
+    path = config.keycloak["required_group"].strip("/")
     resp = requests.get(
-        _realm_url("/groups"),
+        _realm_url(f"/group-by-path/{path}"),
         headers={"Authorization": f"Bearer {token}"},
-        params={"search": config.keycloak["required_group"], "exact": "true"},
         cert=_client_cert(),
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
-    resp.raise_for_status()
-    groups = resp.json()
-    if not groups:
+    if resp.status_code == 404:
         raise Exception(f"Keycloak group '{config.keycloak['required_group']}' not found")
-    _group_id = groups[0]["id"]
+    resp.raise_for_status()
+    group = resp.json()
+    _group_id = group["id"]
+    log.debug(f"Resolved group '{config.keycloak['required_group']}' to id {_group_id}")
     return _group_id
 
 
@@ -98,6 +99,11 @@ def _user_has_access(uid: str) -> tuple[bool, str]:
         if uid in values:
             return True, f"matched user '{member.get('username')}' in group '{required_group}'"
     return False, f"no enabled member of group '{required_group}' has nfc_uid '{uid}'"
+
+
+def clear_cache():
+    cache.clear()
+    log.info("Auth cache cleared")
 
 
 def authenticate(uid: str):
