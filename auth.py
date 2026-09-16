@@ -288,8 +288,8 @@ def _grant_cache_seconds() -> float:
 def authenticate(uid: str) -> AuthResult:
     if getattr(config, "bypass", False):
         log.warning(f"BYPASS mode enabled - granting access unconditionally: {uid}")
-        queue_event(uid, "granted", "BYPASS mode enabled")
-        return AuthResult(True, AuthResult.TYPE_NORMAL, "BYPASS mode enabled")
+        queue_event(uid, "granted", "tryb bypass włączony")
+        return AuthResult(True, AuthResult.TYPE_NORMAL, "tryb bypass włączony")
 
     with _lock:
         in_official_list = uid in _uid_set
