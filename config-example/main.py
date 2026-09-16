@@ -18,33 +18,29 @@ lock = {
     'lock_reversed': True
 }
 
-# Configuration for a server that allows to remotely open the door.
-# Plain HTTP on localhost only - an nginx reverse proxy in front of this
-# host handles TLS termination for external clients.
-server = {
-    'port': 8000
-}
-
-# If True, every card is accepted without checking Keycloak or hardcoded_uid.
+# If True, every card is accepted without checking ERC or the disk cache.
 # Dangerous - only for testing/maintenance, never leave enabled in production.
 bypass = False
 
-# Keycloak connection settings (non-secret). Client id/secret live in
-# keycloak_secret.py since config-example/ is committed to git.
-# Keycloak's origin only accepts this client over mTLS, so requests
-# present the client cert/key pair below during the TLS handshake.
-keycloak = {
-    'server_url': 'https://auth.internal.ksi.sh',
-    'realm': 'ksi',
-    'nfc_attribute': 'nfc_uid',
-    # Full group path, e.g. 'Locks/HQ' for a nested group (leading slash optional).
-    'required_group': 'door-access',
-    'client_cert_file': '/opt/nfc-lock/cert/keycloak-client.crt',
-    'client_key_file': '/opt/nfc-lock/cert/keycloak-client.key'
+# ERC connection settings (non-secret). The API key lives in erc_secret.py
+# since config-example/ is committed to git. ERC's origin also requires this
+# client to present an mTLS certificate during the TLS handshake.
+erc = {
+    'base_url': 'https://erc.ksi.sh',
+    # Reader name reported alongside checks/events, shown in ERC's log.
+    'device': 'drzwi-siedziba',
+    # Full card list, refreshed hourly, used to decide access while ERC is
+    # unreachable (e.g. right after a restart with an empty in-memory cache).
+    'cards_cache_file': '/opt/nfc-lock/cache/cards.json',
+    # Events that couldn't be reported to ERC yet, persisted so they survive
+    # a restart and get retried on the next successful connection.
+    'queue_file': '/opt/nfc-lock/cache/events_queue.json',
+    'client_cert_file': '/opt/nfc-lock/cert/erc-client.crt',
+    'client_key_file': '/opt/nfc-lock/cert/erc-client.key',
+    # How long a card granted by /api/lock/check (but not yet part of the
+    # official /api/lock/uids list) stays valid in the lock's own cache
+    # before it must be re-checked with ERC. The official list itself never
+    # expires this way - it's only ever replaced wholesale by the next
+    # hourly refresh.
+    'grant_cache_seconds': 60 * 60 * 24,
 }
-
-# IDs of cards that can open the door when Keycloak is not available
-hardcoded_uid = [
-    "12345678",
-    "90abcdef"
-]
