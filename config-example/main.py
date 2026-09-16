@@ -26,21 +26,25 @@ bypass = False
 # since config-example/ is committed to git. ERC's origin also requires this
 # client to present an mTLS certificate during the TLS handshake.
 erc = {
-    'base_url': 'https://erc.ksi.sh',
+    'base_url': 'https://erc.internal.ksi.sh',
     # Reader name reported alongside checks/events, shown in ERC's log.
     'device': 'drzwi-siedziba',
-    # Full card list, refreshed hourly, used to decide access while ERC is
-    # unreachable (e.g. right after a restart with an empty in-memory cache).
-    'cards_cache_file': '/opt/nfc-lock/cache/cards.json',
+    # Normal card list (GET /api/lock/uids), refreshed hourly. Valid for
+    # ttlSeconds (48h by default) since it was last confirmed by ERC - past
+    # that, without a successful refresh, it stops granting access.
+    'normal_uids_cache_file': '/opt/nfc-lock/cache/uids.json',
+    # Permanent card list (GET /api/lock/uids/permanent) - never expires, so
+    # it's what decides access while ERC is unreachable (e.g. right after a
+    # restart, or once the normal list above has expired).
+    'permanent_uids_cache_file': '/opt/nfc-lock/cache/uids_permanent.json',
     # Events that couldn't be reported to ERC yet, persisted so they survive
     # a restart and get retried on the next successful connection.
     'queue_file': '/opt/nfc-lock/cache/events_queue.json',
     'client_cert_file': '/opt/nfc-lock/cert/erc-client.crt',
     'client_key_file': '/opt/nfc-lock/cert/erc-client.key',
-    # How long a card granted by /api/lock/check (but not yet part of the
-    # official /api/lock/uids list) stays valid in the lock's own cache
-    # before it must be re-checked with ERC. The official list itself never
-    # expires this way - it's only ever replaced wholesale by the next
-    # hourly refresh.
+    # How long a card granted by /api/lock/check (but not yet part of either
+    # UID list) stays valid in the lock's own cache before it must be
+    # re-checked with ERC. The two lists themselves never expire this way -
+    # each is only ever replaced wholesale by its next refresh.
     'grant_cache_seconds': 60 * 60 * 24,
 }

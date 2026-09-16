@@ -16,12 +16,20 @@ log = Logger().getLog()
 
 REQUEST_TIMEOUT_SECONDS = 10
 DEFAULT_GRANT_CACHE_SECONDS = 60 * 60 * 24
+# Fallback if a stored normal-list body somehow has no ttlSeconds (fresh install
+# with a hand-written cache file, say). ERC's own default is the same 48h.
+DEFAULT_NORMAL_LIST_TTL_SECONDS = 60 * 60 * 48
 EVENT_BATCH_SIZE = 200
+
+# Canonical `reason` strings for events the lock decided on its own, per ERC's
+# lock-api.md "Nazewnictwo powodów" - these land straight in the ERC panel.
+REASON_CACHE = "cache zamka"
+REASON_OFFLINE = "offline: z lokalnej kopii"
 
 
 class AuthResult:
     TYPE_NORMAL = 1
-    # Decided locally from the on-disk card cache because ERC was unreachable.
+    # Decided locally from the permanent list because ERC was unreachable.
     TYPE_OFFLINE = 2
 
     def __init__(self, is_granted, type, reason=None):
@@ -31,17 +39,26 @@ class AuthResult:
 
 
 _lock = threading.RLock()
-# Authoritative list mirrored from ERC (/api/lock/uids). Refreshed wholesale
-# on a schedule owned by the application - entries don't expire on their own,
-# they're only ever replaced by the next refresh.
-_uid_set: set[str] = set()
-_uid_etag: str | None = None
-# Fallback list mirrored from ERC (/api/lock/cards), used only while ERC is
-# unreachable. Same "never expires on its own" rule as _uid_set.
-_cards: dict[str, dict] = {}
-# UIDs granted by a live /api/lock/check call that aren't (yet) in _uid_set.
-# Unlike _uid_set/_cards, these entries DO expire, after erc['grant_cache_seconds'].
+
+# Normal list (GET /api/lock/uids): valid for ttlSeconds (48h by default)
+# after generatedAt, renewed by every successful refresh *and* every 304.
+# Once it expires without a successful refresh, it stops granting access -
+# see _normal_list_valid().
+_normal_uids: set[str] = set()
+_normal_etag: str | None = None
+_normal_last_body: dict | None = None  # raw body as last received/renewed, incl. expiresAt
+
+# Permanent list (GET /api/lock/uids/permanent): no expiry. Only ever
+# replaced wholesale by a successful refresh - this is the offline fallback,
+# equivalent to the old hand-maintained hardcoded_uid list.
+_permanent_uids: set[str] = set()
+_permanent_etag: str | None = None
+
+# UIDs granted by a live /api/lock/check call that aren't on either list
+# above (yet). Unlike the two lists, these entries DO expire, after
+# erc['grant_cache_seconds'].
 _grant_cache: dict[str, float] = {}
+
 _queue: list[dict] = []
 
 
@@ -57,12 +74,20 @@ def _client_cert() -> tuple[str, str]:
     return (config.erc["client_cert_file"], config.erc["client_key_file"])
 
 
-def _cards_file() -> str:
-    return config.erc["cards_cache_file"]
+def _normal_uids_file() -> str:
+    return config.erc["normal_uids_cache_file"]
+
+
+def _permanent_uids_file() -> str:
+    return config.erc["permanent_uids_cache_file"]
 
 
 def _queue_file() -> str:
     return config.erc["queue_file"]
+
+
+def _parse_iso(ts: str) -> float:
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
 
 
 def _atomic_write(path: str, data):
@@ -78,17 +103,33 @@ def _atomic_write(path: str, data):
         raise
 
 
-def _load_cards_from_disk():
-    global _cards
+def _load_normal_list_from_disk():
+    global _normal_uids, _normal_etag, _normal_last_body
     try:
-        with open(_cards_file()) as f:
+        with open(_normal_uids_file()) as f:
             body = json.load(f)
-        _cards = {c["uid"]: c for c in body.get("cards", [])}
-        log.info(f"Loaded {len(_cards)} card(s) from disk cache")
+        _normal_uids = set(body["uids"])
+        _normal_etag = f'"{body["version"]}"'
+        _normal_last_body = body
+        log.info(f"Loaded {len(_normal_uids)} UID(s) from disk (normal list, valid until {body.get('expiresAt')})")
     except FileNotFoundError:
-        log.warning("No disk card cache found yet - offline fallback will deny everyone until ERC is reachable")
+        log.warning("No disk copy of the normal UID list yet")
     except Exception as e:
-        log.error(f"Failed to load disk card cache: {e}")
+        log.error(f"Failed to load normal UID list from disk: {e}")
+
+
+def _load_permanent_list_from_disk():
+    global _permanent_uids, _permanent_etag
+    try:
+        with open(_permanent_uids_file()) as f:
+            body = json.load(f)
+        _permanent_uids = set(body["uids"])
+        _permanent_etag = f'"{body["version"]}"'
+        log.info(f"Loaded {len(_permanent_uids)} UID(s) from disk (permanent list)")
+    except FileNotFoundError:
+        log.warning("No disk copy of the permanent UID list yet - offline fallback will deny everyone")
+    except Exception as e:
+        log.error(f"Failed to load permanent UID list from disk: {e}")
 
 
 def _load_queue_from_disk():
@@ -111,45 +152,74 @@ def _save_queue_to_disk():
         log.error(f"Failed to persist event queue: {e}")
 
 
-def refresh_uids():
-    global _uid_set, _uid_etag
+def _normal_list_valid() -> bool:
+    with _lock:
+        body = _normal_last_body
+    if body is None or "expiresAt" not in body:
+        return False
+    try:
+        return time() < _parse_iso(body["expiresAt"])
+    except Exception:
+        return False
+
+
+def refresh_normal_uids():
+    global _normal_uids, _normal_etag, _normal_last_body
     headers = _headers()
-    if _uid_etag:
-        headers["If-None-Match"] = _uid_etag
+    if _normal_etag:
+        headers["If-None-Match"] = _normal_etag
     try:
         resp = requests.get(
             f"{_base_url()}/api/lock/uids", headers=headers, cert=_client_cert(), timeout=REQUEST_TIMEOUT_SECONDS
         )
         if resp.status_code == 304:
-            log.debug("UID list unchanged since last refresh")
+            # Still current: ERC confirms the list is unchanged, which counts
+            # the same as a fresh fetch - renew validity for another full TTL.
+            with _lock:
+                if _normal_last_body is not None:
+                    ttl = _normal_last_body.get("ttlSeconds", DEFAULT_NORMAL_LIST_TTL_SECONDS)
+                    _normal_last_body["expiresAt"] = datetime.fromtimestamp(
+                        time() + ttl, tz=timezone.utc
+                    ).isoformat()
+                    _atomic_write(_normal_uids_file(), _normal_last_body)
+            log.debug("Normal UID list unchanged, validity renewed")
             return
         resp.raise_for_status()
         body = resp.json()
         with _lock:
-            _uid_set = set(body["uids"])
-            _uid_etag = resp.headers.get("ETag") or f'"{body.get("version")}"'
-        log.info(f"Refreshed in-memory UID list from ERC ({len(_uid_set)} card(s))")
+            _normal_uids = set(body["uids"])
+            _normal_etag = resp.headers.get("ETag") or f'"{body.get("version")}"'
+            _normal_last_body = body
+            _atomic_write(_normal_uids_file(), body)
+        log.info(f"Refreshed normal UID list from ERC ({len(_normal_uids)} card(s), valid until {body.get('expiresAt')})")
     except Exception as e:
-        log.error(f"Failed to refresh UID list from ERC: {e}")
+        log.error(f"Failed to refresh normal UID list from ERC: {e}")
 
 
-def refresh_cards():
-    global _cards
+def refresh_permanent_uids():
+    global _permanent_uids, _permanent_etag
+    headers = _headers()
+    if _permanent_etag:
+        headers["If-None-Match"] = _permanent_etag
     try:
         resp = requests.get(
-            f"{_base_url()}/api/lock/cards",
-            headers=_headers(),
+            f"{_base_url()}/api/lock/uids/permanent",
+            headers=headers,
             cert=_client_cert(),
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
+        if resp.status_code == 304:
+            log.debug("Permanent UID list unchanged")
+            return
         resp.raise_for_status()
         body = resp.json()
         with _lock:
-            _cards = {c["uid"]: c for c in body.get("cards", [])}
-        _atomic_write(_cards_file(), body)
-        log.info(f"Refreshed disk card cache from ERC ({len(_cards)} card(s))")
+            _permanent_uids = set(body["uids"])
+            _permanent_etag = resp.headers.get("ETag") or f'"{body.get("version")}"'
+            _atomic_write(_permanent_uids_file(), body)
+        log.info(f"Refreshed permanent UID list from ERC ({len(_permanent_uids)} card(s))")
     except Exception as e:
-        log.error(f"Failed to refresh disk card cache from ERC: {e}")
+        log.error(f"Failed to refresh permanent UID list from ERC: {e}")
 
 
 def queue_event(uid: str, result: str, reason: str = None, at: str = None):
@@ -255,29 +325,30 @@ def check(uid: str):
 
 def clear_cache():
     """Forces every not-yet-expired /check grant to be re-verified with ERC,
-    and pulls a fresh copy of both lists right away. _uid_set and _cards are
-    left alone - they're only ever replaced wholesale by a refresh, not
-    invalidated by this."""
+    and pulls a fresh copy of both lists right away. The normal/permanent
+    lists themselves are left alone - they're only ever replaced wholesale by
+    a refresh, not invalidated by this."""
     with _lock:
         _grant_cache.clear()
-    log.info("Grant cache cleared; forcing UID/card refresh from ERC")
-    refresh_uids()
-    refresh_cards()
+    log.info("Grant cache cleared; forcing UID list refresh from ERC")
+    refresh_normal_uids()
+    refresh_permanent_uids()
 
 
 def load():
-    """Loads on-disk state (card fallback list, pending event queue). Call once at startup,
-    before the first sync()."""
-    _load_cards_from_disk()
+    """Loads on-disk state (both UID lists, pending event queue). Call once at
+    startup, before the first sync()."""
+    _load_normal_list_from_disk()
+    _load_permanent_list_from_disk()
     _load_queue_from_disk()
 
 
 def sync():
-    """Refreshes both card lists from ERC and flushes any queued events.
+    """Refreshes both UID lists from ERC and flushes any queued events.
     Called once at startup and then periodically by the application (see app.py) -
     this module does not schedule its own refreshes."""
-    refresh_uids()
-    refresh_cards()
+    refresh_normal_uids()
+    refresh_permanent_uids()
     flush_queue()
 
 
@@ -292,21 +363,19 @@ def authenticate(uid: str) -> AuthResult:
         return AuthResult(True, AuthResult.TYPE_NORMAL, "tryb bypass włączony")
 
     with _lock:
-        in_official_list = uid in _uid_set
+        on_permanent_list = uid in _permanent_uids
+        on_normal_list = uid in _normal_uids
         grant_cache_hit = uid in _grant_cache and time() - _grant_cache[uid] < _grant_cache_seconds()
 
-    if in_official_list or grant_cache_hit:
-        reason = (
-            "z listy w pamięci (/api/lock/uids)"
-            if in_official_list
-            else "z pamięci podręcznej zamka (ostatnio potwierdzone przez /api/lock/check)"
-        )
-        log.debug(f"UID granted from local cache: {reason}")
-        queue_event(uid, "granted", reason)
-        return AuthResult(True, AuthResult.TYPE_NORMAL, reason)
+    # The permanent list always grants. The normal list only grants while
+    # it's still within its TTL - past that it's treated as absent, same as
+    # any other unknown card.
+    if on_permanent_list or (on_normal_list and _normal_list_valid()) or grant_cache_hit:
+        log.debug(f"UID granted from local cache for {uid}")
+        queue_event(uid, "granted", REASON_CACHE)
+        return AuthResult(True, AuthResult.TYPE_NORMAL, REASON_CACHE)
 
-    # Not confirmed as granted (or the grant cache entry expired): never deny
-    # without asking ERC first.
+    # Nothing confirms a grant locally: never deny without asking ERC first.
     try:
         body = check(uid)
     except Exception as e:
@@ -324,13 +393,10 @@ def authenticate(uid: str) -> AuthResult:
         queue_event(uid, "granted" if granted else "denied", reason)
         return AuthResult(granted, AuthResult.TYPE_NORMAL, reason)
 
-    # ERC couldn't reach Keycloak (503) or ERC itself is unreachable: fall
-    # back to the last card list persisted to disk and report the decision
-    # once a connection is available again.
-    with _lock:
-        card = _cards.get(uid)
-    granted = card is not None
-    reason = f"decyzja offline z kopii na dysku: {'karta ' + card['name'] if card else 'karta nieznana'}"
-    log.warning(f"ERC unavailable, deciding offline for {uid}: {reason}")
-    queue_event(uid, "granted" if granted else "denied", reason)
-    return AuthResult(granted, AuthResult.TYPE_OFFLINE, reason)
+    # ERC couldn't reach Keycloak (503) or ERC itself is unreachable: the only
+    # thing we can still trust offline is the permanent list (the normal list
+    # would already have granted above if it were still valid).
+    granted = on_permanent_list
+    log.warning(f"ERC unavailable, deciding offline for {uid}: granted={granted}")
+    queue_event(uid, "granted" if granted else "denied", REASON_OFFLINE)
+    return AuthResult(granted, AuthResult.TYPE_OFFLINE, REASON_OFFLINE)
