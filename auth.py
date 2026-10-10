@@ -15,7 +15,7 @@ import config.erc_secret as erc_secret
 log = Logger().getLog()
 
 REQUEST_TIMEOUT_SECONDS = 10
-DEFAULT_GRANT_CACHE_SECONDS = 60 * 60 * 24
+DEFAULT_GRANT_CACHE_SECONDS = 60 * 60
 # Fallback if a stored normal-list body somehow has no ttlSeconds (fresh install
 # with a hand-written cache file, say). ERC's own default is the same 48h.
 DEFAULT_NORMAL_LIST_TTL_SECONDS = 60 * 60 * 48
@@ -56,7 +56,9 @@ _permanent_etag: str | None = None
 
 # UIDs granted by a live /api/lock/check call that aren't on either list
 # above (yet). Unlike the two lists, these entries DO expire, after
-# erc['grant_cache_seconds'].
+# erc['grant_cache_seconds'] - and every successful refresh of the normal list
+# drops the ones ERC no longer lists (see _prune_grant_cache), so a revoked
+# card stops opening the door within one refresh interval.
 _grant_cache: dict[str, float] = {}
 
 _queue: list[dict] = []
@@ -163,6 +165,18 @@ def _normal_list_valid() -> bool:
         return False
 
 
+def _prune_grant_cache():
+    """Drops /check grants for cards ERC's freshly confirmed normal list no
+    longer has. ERC builds that list from the same rule /check uses, so a
+    card missing from it has been revoked (or never made it, and the next
+    swipe simply asks ERC again). Call with _lock held."""
+    revoked = [uid for uid in _grant_cache if uid not in _normal_uids]
+    for uid in revoked:
+        del _grant_cache[uid]
+    if revoked:
+        log.info(f"Dropped {len(revoked)} cached grant(s) no longer on ERC's list")
+
+
 def refresh_normal_uids():
     global _normal_uids, _normal_etag, _normal_last_body
     headers = _headers()
@@ -182,6 +196,7 @@ def refresh_normal_uids():
                         time() + ttl, tz=timezone.utc
                     ).isoformat()
                     _atomic_write(_normal_uids_file(), _normal_last_body)
+                _prune_grant_cache()
             log.debug("Normal UID list unchanged, validity renewed")
             return
         resp.raise_for_status()
@@ -191,6 +206,7 @@ def refresh_normal_uids():
             _normal_etag = resp.headers.get("ETag") or f'"{body.get("version")}"'
             _normal_last_body = body
             _atomic_write(_normal_uids_file(), body)
+            _prune_grant_cache()
         log.info(f"Refreshed normal UID list from ERC ({len(_normal_uids)} card(s), valid until {body.get('expiresAt')})")
     except Exception as e:
         log.error(f"Failed to refresh normal UID list from ERC: {e}")
@@ -321,18 +337,6 @@ def check(uid: str):
         return None
     resp.raise_for_status()
     return resp.json()
-
-
-def clear_cache():
-    """Forces every not-yet-expired /check grant to be re-verified with ERC,
-    and pulls a fresh copy of both lists right away. The normal/permanent
-    lists themselves are left alone - they're only ever replaced wholesale by
-    a refresh, not invalidated by this."""
-    with _lock:
-        _grant_cache.clear()
-    log.info("Grant cache cleared; forcing UID list refresh from ERC")
-    refresh_normal_uids()
-    refresh_permanent_uids()
 
 
 def load():

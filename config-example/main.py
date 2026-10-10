@@ -44,7 +44,10 @@ erc = {
     'client_key_file': '/opt/nfc-lock/cert/erc-client.key',
     # How long a card granted by /api/lock/check (but not yet part of either
     # UID list) stays valid in the lock's own cache before it must be
-    # re-checked with ERC. The two lists themselves never expire this way -
-    # each is only ever replaced wholesale by its next refresh.
-    'grant_cache_seconds': 60 * 60 * 24,
+    # re-checked with ERC. Every successful refresh of the normal list also
+    # drops cached grants ERC no longer lists, so a revoked card stops working
+    # within one refresh interval (1h) either way. The two lists themselves
+    # never expire this way - each is only ever replaced wholesale by its
+    # next refresh.
+    'grant_cache_seconds': 60 * 60,
 }
