@@ -1,6 +1,7 @@
 evdev>=1.6
-requests~=2.25.1
-urllib3~=1.26.5
+requests>=2.34.2,<3
+# >=2.8.0: fixes unbounded chunk-size buffering in streamed chunked responses.
+urllib3>=2.8.0,<3
 
 # Pinned explicitly: recent Raspberry Pi OS ships rpi-lgpio instead, which
 # only understands new-style board revision codes and fails on older boards
