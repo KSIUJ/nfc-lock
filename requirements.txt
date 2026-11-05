@@ -1,4 +1,5 @@
-evdev>=1.6
+# pip picks 2.x on Python >=3.11 and falls back to 1.9.3 on older Pi OS (3.9).
+evdev>=1.9.3
 requests>=2.34.2,<3
 # >=2.8.0: fixes unbounded chunk-size buffering in streamed chunked responses.
 urllib3>=2.8.0,<3
